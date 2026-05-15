@@ -89,7 +89,9 @@ Schéma :
 CALIBRATION pour les critères estimés (range, interaction) :
 - En cas de doute entre deux niveaux, choisis le plus élevé.
 - Si le locuteur répond de façon pertinente et compréhensible → interaction minimum 29.
-- Si le locuteur développe ses réponses → range minimum 45.
+- Si le locuteur développe ses réponses avec des phrases complètes → range minimum 55. Ne pénalise pas le vocabulaire limité si les structures sont variées.
+- Si le locuteur utilise des connecteurs, des descriptions ou des opinions → range minimum 65.
+- Si le locuteur aborde des sujets abstraits ou hypothétiques → range minimum 75.
 - Si le transcript est trop court (<5 tours), baisse confidence à 0.4 max.`;
 
 interface AzureScores {
