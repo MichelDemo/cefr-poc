@@ -432,9 +432,17 @@ export default function Home() {
       },
       onError: (e) => console.error("STT error:", e),
     });
-    await sttRef.current.start();
 
-    // Kick off the conversation
+    // Start STT — but don't let a Deepgram connection failure block the avatar
+    // from speaking. Azure TTS is independent and must always start.
+    try {
+      await sttRef.current.start();
+    } catch (e) {
+      console.error("Deepgram STT failed to connect:", e);
+      // STT is down but TTS still works — avatar will speak, mic input is disabled
+    }
+
+    // Kick off the conversation regardless of STT status
     await handleUserTurn("__START__");
   };
 
