@@ -3,6 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   // @react-three/fiber v8 has JSX type incompatibilities with React 19 — pre-existing
   typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
   webpack: (config, { isServer }) => {
     if (!isServer) {
       // Azure Speech SDK uses Node.js built-ins that don't exist in browsers

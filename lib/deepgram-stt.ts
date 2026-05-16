@@ -144,7 +144,6 @@ export class DeepgramSTT {
 
     // ScriptProcessorNode captures raw PCM from the mic and sends it over WebSocket.
     // Deprecated but universally supported; AudioWorklet would be the modern alternative.
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
     this.processor.onaudioprocess = (e) => {
