@@ -416,6 +416,10 @@ export default function Home() {
         isSpeakingRef.current = amp > 0;
         setAmplitude(amp);
       });
+      // Unlock the AudioContext now, while we are still inside the click handler
+      // (before any await). Chrome's autoplay policy can block resume() called
+      // from async continuations that are far from the original user gesture.
+      playerRef.current.init();
     }
 
     sttRef.current = new DeepgramSTT(language, {

@@ -13,6 +13,15 @@ export class StreamingAudioPlayer {
     this.onAmplitudeChange = onAmplitudeChange;
   }
 
+  /**
+   * Call immediately after construction, while still inside the user-gesture
+   * handler (before any await). Creates and resumes the AudioContext eagerly so
+   * Chrome's autoplay policy cannot block it later when audio chunks arrive.
+   */
+  init() {
+    this.ensureContext();
+  }
+
   private ensureContext(): AudioContext {
     if (!this.audioContext) {
       // No explicit sampleRate — let the browser use its native rate (44100/48000).

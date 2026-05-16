@@ -76,11 +76,19 @@ export class DeepgramSTT {
     this.ws = new WebSocket(url, ["token", key]);
     this.ws.binaryType = "arraybuffer";
 
-    // Wait for the connection to open before starting audio capture
-    await new Promise<void>((resolve, reject) => {
-      this.ws!.addEventListener("open", () => resolve(), { once: true });
-      this.ws!.addEventListener("error", () => reject(new Error("Deepgram WS failed to open")), { once: true });
-    });
+    // Wait for the connection to open before starting audio capture.
+    // 8-second timeout: if the WebSocket never opens or errors (e.g. firewall
+    // silently drops the connection), start() would hang forever and block the
+    // avatar from speaking. The caller wraps start() in try/catch.
+    await Promise.race([
+      new Promise<void>((resolve, reject) => {
+        this.ws!.addEventListener("open", () => resolve(), { once: true });
+        this.ws!.addEventListener("error", () => reject(new Error("Deepgram WS failed to open")), { once: true });
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Deepgram WS connection timeout (8 s)")), 8000)
+      ),
+    ]);
 
     this.ws.addEventListener("message", (e) => this.onMessage(e));
     this.ws.addEventListener("error", () =>
