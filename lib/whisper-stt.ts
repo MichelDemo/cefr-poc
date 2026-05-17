@@ -243,9 +243,12 @@ export class WhisperSTT {
         if (duration >= 0.5) wpm = Math.round((words.length / duration) * 60);
       }
 
-      // Pseudo-confidence per word — Whisper has no per-word logprob, so we
-      // apply the same cube-root-scaled segment score to every word.
-      const wordConf = Math.pow(normalized, 1 / 3);
+      // Whisper verbose_json provides word timestamps but NO per-word logprob.
+      // Spreading the segment score across words gives every word the same
+      // fake value (e.g. 79 % when the sentence is clear). Instead: if Whisper
+      // transcribed the word, it was pronounced well enough to be understood →
+      // treat each transcribed word as fully confident.
+      const wordConf = 1.0;
 
       this.cb.onFinal?.(text, {
         text,
