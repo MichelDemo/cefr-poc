@@ -56,10 +56,10 @@ Fluency (naturalness of delivery):
 10: Completely natural, indistinguishable from a proficient native speaker
 
 Vocabulary & Grammar (range, precision, and grammatical accuracy — score the average):
-1-3: Very limited vocabulary, basic words only; pervasive grammar errors, meaning often unclear
-4-5: Functional vocabulary, relies on approximations; frequent errors in tense/articles/agreement
-6-7: Adequate range, occasional imprecision; errors present but mostly do not impede meaning
-8-9: Rich and varied vocabulary, nuanced expressions; mostly accurate, errors rare and minor
+1-3: Very limited vocabulary, basic words only; pervasive errors, meaning frequently unclear
+4-5: Functional vocabulary with gaps, relies on approximations; frequent errors but meaning usually recoverable
+6-7: Adequate range with some imprecision; errors present but rarely block understanding — score 7 when most ideas come through clearly
+8-9: Good range with varied vocabulary and some nuanced expressions; mostly accurate with only isolated errors
 10: Exceptional range, precise and idiomatic; near-flawless accuracy with full structural range
 
 Communication (message delivery, coherence, and comprehension of questions):
@@ -115,13 +115,11 @@ Fluency in speech correlates strongly with speaking rate. Use this scale to anch
 - WPM 100-109 → fluency 5-6 (A2/B1 — some hesitation)
 - WPM 110-119 → fluency 6  (B1 — approaching natural)
 - WPM 120-129 → fluency 7  (B1/B2 — mostly natural, occasional pause)
-- WPM 130-139 → fluency 7-8 (B2 — natural conversational pace)
-- WPM 140-149 → fluency 8  (B2/C1 — smooth delivery)
-- WPM 150-159 → fluency 8-9 (C1 — effortless, near-native)
-- WPM 160-169 → fluency 9-10 (C1/C2 — fast and fluid)
-- WPM ≥ 170  → fluency 10  (C2 — fully native-like rate)
-Hard boundaries: WPM < 80 = A1 or below (fluency ≤ 3); WPM > 160 = C2 (fluency ≥ 10).
-Native conversational English: 130-170 WPM. French/Dutch tend to be slightly faster.
+- WPM 130-139 → fluency 8  (B2/C1 — natural conversational pace)
+- WPM 140-149 → fluency 9  (C1/C2 — smooth, effortless delivery)
+- WPM ≥ 150  → fluency 10  (C2 — fully native-like rate)
+Hard boundaries: WPM < 80 = A1 or below (fluency ≤ 3); WPM ≥ 150 = C2 (fluency 10).
+Native conversational English: 130-160 WPM. French/Dutch tend to be slightly faster.
 WPM is a strong anchor but not the only signal — also consider pause patterns and self-correction frequency evident from the transcript.
 
 Calibration anchors — lower levels (ceiling applies only when pattern is consistent across most turns):
