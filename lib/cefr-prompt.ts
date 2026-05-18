@@ -105,10 +105,11 @@ Fluency:
 - Occasional fillers ("uh", "well", "I think") at normal frequency are a natural part of spoken fluency and should not lower the score.
 
 ASR transcription errors — CRITICAL:
-- The transcript is produced by OpenAI Whisper. Whisper is highly accurate but can mishear words in fast or heavily accented speech.
-- The pronunciation score provided is derived from Whisper's internal log-probability (avg_logprob): 100 = very clear audio, ~70 = good, ~50 = moderate accent/noise, ≤30 = unclear. It reflects acoustic clarity, not lexical correctness.
-- When the pronunciation score is HIGH (≥ 70), assume the speaker's actual production was BETTER than any apparent errors in the transcript. Treat garbled words (e.g. "tiations" from "negotiations") as ASR noise, not speaker errors.
-- When the score is high (≥ 70), do NOT penalise apparent vocabulary or grammar errors that could plausibly be Whisper mishearing.
+- The transcript is produced by Azure Speech Services. Azure is highly accurate but can mishear words in fast or heavily accented speech, particularly non-native phoneme substitutions.
+- The pronunciation confidence score (0-100) reflects acoustic clarity: 100 = perfectly clear, ~70 = good, ~50 = moderate accent/noise, ≤30 = unclear audio.
+- When the pronunciation score is HIGH (≥ 70), assume the speaker's actual production was BETTER than any apparent errors in the transcript. Treat garbled or truncated words (e.g. "tiations" from "negotiations") as ASR noise, not speaker errors.
+- When the score is high (≥ 70), do NOT penalise apparent vocabulary or grammar errors that could plausibly be Azure mishearing.
+- VOCABULARY_GRAMMAR PROTECTION RULE: If a word appears distorted, truncated, or semantically out of place in the transcript AND the overall pronunciation score is ≥ 50, treat that word as a likely ASR artefact and do NOT count it as a vocabulary or grammar error. Only penalise vocabulary_grammar for errors that appear consistently across multiple turns in clearly intelligible speech.
 Words per minute (WPM) → fluency dimension mapping (when provided):
 Fluency in speech correlates strongly with speaking rate. Use this scale to anchor the fluency dimension score:
 - WPM < 50   → fluency 1   (A0 — barely produces connected speech)

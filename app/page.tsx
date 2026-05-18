@@ -353,6 +353,8 @@ export default function Home() {
   const [elapsed, setElapsed] = useState(0);
   const [cefrResult, setCefrResult] = useState<CefrResult | null>(null);
   const [evaluating, setEvaluating] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const audioBlobUrlRef = useRef<string | null>(null);
 
   const sttRef = useRef<AzureSTT | null>(null);
   const playerRef = useRef<StreamingAudioPlayer | null>(null);
@@ -597,6 +599,19 @@ export default function Home() {
 
   const runEvaluation = async () => {
     setEvaluating(true);
+
+    // Stop STT and recording the moment evaluation begins — no more input needed.
+    sttRef.current?.stop();
+    const blob = await recorderRef.current?.stop() ?? null;
+    if (blob && blob.size > 0) {
+      // Revoke previous object URL to avoid memory leaks
+      if (audioBlobUrlRef.current) {
+        URL.revokeObjectURL(audioBlobUrlRef.current);
+      }
+      audioBlobUrlRef.current = URL.createObjectURL(blob);
+      setAudioBlob(blob);
+    }
+
     const userTurns = historyRef.current
       .filter((m) => m.role === "user")
       .map((m) => m.content);
@@ -619,8 +634,10 @@ export default function Home() {
     }
     sttRef.current?.stop();
     if (!USE_HEYGEN) playerRef.current?.stop();
-    const audioBlob = await recorderRef.current?.stop() ?? null;
-    await saveSession(audioBlob, cefrResult ?? undefined);
+    // Recorder may already have been stopped by runEvaluation — stop() is safe
+    // to call twice (returns null when MediaRecorder is already inactive).
+    const freshBlob = await recorderRef.current?.stop() ?? null;
+    await saveSession(freshBlob ?? audioBlob, cefrResult ?? undefined);
     setSessionStarted(false);
   };
 
@@ -739,6 +756,30 @@ export default function Home() {
               {cefrResult && <CefrPanel result={cefrResult} azureAvg={azureAvg} />}
             </div>
           </div>
+
+          {/* Listen-back player — shown once the recording has been captured */}
+          {audioBlob && audioBlobUrlRef.current && (
+            <div
+              style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid #1e293b",
+                flexShrink: 0,
+                background: "#0f172a",
+              }}
+            >
+              <div style={{ fontSize: 10, color: "#60a5fa", fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                LISTEN BACK
+              </div>
+              <audio
+                controls
+                src={audioBlobUrlRef.current}
+                style={{ width: "100%", height: 32, accentColor: "#4f46e5" }}
+              />
+              <div style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>
+                Coloured words in the transcript below show pronunciation quality.
+              </div>
+            </div>
+          )}
 
           {/* Transcript */}
           <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px" }}>
