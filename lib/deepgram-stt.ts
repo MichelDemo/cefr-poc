@@ -83,13 +83,14 @@ export class DeepgramSTT {
       `&smart_format=true` +
       `&encoding=linear16` +
       `&sample_rate=16000` +
-      // 800 ms silence before speech_final fires. Shorter values (300-500 ms)
-      // interrupt speakers who pause briefly mid-sentence. The "stuck" issue was
-      // caused by dropped turns (fixed by buffering), not by endpointing being too long.
-      `&endpointing=800` +
-      // UtteranceEnd as a safety net only — fired after 2500 ms of silence so it
+      // 1500 ms silence before speech_final fires. Non-native speakers often pause
+      // 500-1000 ms mid-sentence to find words — 800 ms was too short and caused
+      // the avatar to cut in before the speaker finished. 1500 ms gives comfortable
+      // room for mid-sentence pauses while still detecting genuine turn-ends.
+      `&endpointing=1500` +
+      // UtteranceEnd as a safety net only — fired after 3000 ms of silence so it
       // never triggers on natural mid-sentence pauses.
-      `&utterance_end_ms=2500`;
+      `&utterance_end_ms=3000`;
 
     // Deepgram's supported browser auth: API key as WebSocket subprotocol
     this.ws = new WebSocket(url, ["token", key]);
@@ -185,13 +186,15 @@ export class DeepgramSTT {
         if (data.speech_final) {
           this.dispatchUtterance();
         } else {
-          // Set a 2.5 s fallback: if speech_final never arrives (e.g. noisy environment),
-          // dispatch anyway so the conversation doesn't get stuck.
+          // Set a 5 s fallback: if speech_final never arrives (e.g. noisy environment),
+          // dispatch anyway so the conversation doesn't get stuck. 5 s is long enough
+          // that it never triggers on mid-sentence pauses (which are ≤ 2 s even for
+          // slow speakers) but still prevents the conversation from hanging indefinitely.
           if (this.utteranceTimer) clearTimeout(this.utteranceTimer);
           this.utteranceTimer = setTimeout(() => {
             this.utteranceTimer = null;
             this.dispatchUtterance();
-          }, 2500);
+          }, 5000);
         }
       } else {
         // Partial: show accumulated confirmed text + live partial for live caption.
