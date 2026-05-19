@@ -26,6 +26,7 @@ type Msg = {
   role: "user" | "assistant";
   content: string;
   pronunciation?: PronunciationResult; // only on user turns
+  audioUrl?: string;                   // per-turn recording URL (set after evaluation)
 };
 
 interface CefrResult {
@@ -375,6 +376,12 @@ export default function Home() {
   const endTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyRef = useRef<Msg[]>([]);
   historyRef.current = history;
+  /** Turn spoken while avatar was responding — flushed after avatar finishes. */
+  const bufferedUserTurnRef = useRef<{ text: string; pronunciation: PronunciationResult } | null>(null);
+  /** Per-turn MediaRecorder — one recording per user utterance, restarted after each turn. */
+  const turnRecorderRef = useRef<MediaRecorder | null>(null);
+  const turnChunksRef = useRef<Blob[]>([]);
+  const turnMimeRef = useRef<string>("audio/webm");
 
   // Derived: average Azure pronunciation scores across all scored user turns
   const azureAvg = useMemo<AzureAvg | null>(() => {
@@ -465,6 +472,35 @@ export default function Home() {
     if (error) console.error("Session save error:", error.message);
   };
 
+  // ── per-turn recorder helpers ──────────────────────────────────────────────
+  const startTurnRecording = () => {
+    if (turnRecorderRef.current) return; // already recording
+    const stream = sttRef.current?.getStream();
+    if (!stream) return;
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus" : "audio/webm";
+    turnMimeRef.current = mimeType;
+    turnChunksRef.current = [];
+    const mr = new MediaRecorder(stream, { mimeType });
+    mr.ondataavailable = (e) => { if (e.data.size > 0) turnChunksRef.current.push(e.data); };
+    mr.start(500);
+    turnRecorderRef.current = mr;
+  };
+
+  const stopTurnRecording = (): Promise<string | null> => {
+    const mr = turnRecorderRef.current;
+    turnRecorderRef.current = null;
+    if (!mr || mr.state === "inactive") return Promise.resolve(null);
+    return new Promise((resolve) => {
+      mr.onstop = () => {
+        const blob = new Blob(turnChunksRef.current, { type: turnMimeRef.current });
+        turnChunksRef.current = [];
+        resolve(blob.size > 0 ? URL.createObjectURL(blob) : null);
+      };
+      mr.stop();
+    });
+  };
+
   // ── session ──
   const startSession = async () => {
     setSessionStarted(true);
@@ -491,40 +527,48 @@ export default function Home() {
         if (USE_HEYGEN) liveAvatarRef.current?.startListening();
       },
       onFinal: async (text, dgPron) => {
-        if (!text.trim() || isProcessingRef.current || isSpeakingRef.current) return;
-        setPartialUser("");
-        if (USE_HEYGEN) liveAvatarRef.current?.stopListening();
+        if (!text.trim()) return;
 
-        // Convert Deepgram word scores to Azure-compatible format (used as
-        // placeholder until Azure fires its pronunciation result for this turn).
+        // Build Azure-compatible pronunciation from Deepgram data (placeholder
+        // until Azure's per-phoneme result arrives and updates it retroactively).
         const convertedWords: WordScore[] = dgPron.words.map((w) => ({
           word: w.word,
           confidence: w.confidence,
           accuracyScore: Math.round(w.confidence * 100),
           errorType: "None",
         }));
-        const prelimPron: PronunciationResult = {
-          text: dgPron.text,
-          pronunciationScore: dgPron.pronunciationScore,
-          accuracyScore: dgPron.pronunciationScore,
-          wpm: dgPron.wpm,
-          words: convertedWords,
-        };
-
-        // If Azure has already fired for this utterance, use its scores;
-        // keep Deepgram's WPM (word-timestamp precision beats Azure duration).
         const azurePron = azurePendingRef.current;
         azurePendingRef.current = null;
         const pronunciation: PronunciationResult = azurePron
           ? { ...azurePron, wpm: dgPron.wpm }
-          : prelimPron;
+          : {
+              text: dgPron.text,
+              pronunciationScore: dgPron.pronunciationScore,
+              accuracyScore: dgPron.pronunciationScore,
+              wpm: dgPron.wpm,
+              words: convertedWords,
+            };
 
-        // Mark the index where this turn will land in history[] so a late
-        // Azure result can retroactively update the word colours.
-        azureUpdateIdxRef.current = historyRef.current.length;
+        // Avatar is still talking or processing a previous turn — buffer this
+        // turn instead of dropping it. handleUserTurn flushes the buffer when done.
+        if (isProcessingRef.current || isSpeakingRef.current) {
+          bufferedUserTurnRef.current = { text, pronunciation };
+          return;
+        }
 
-        // Capture and clear the pending-end flag before any await so a
-        // concurrent timeout can't also fire __END__.
+        setPartialUser("");
+        if (USE_HEYGEN) liveAvatarRef.current?.stopListening();
+
+        // Stop current turn recorder (captures this utterance's audio),
+        // then immediately restart for the next turn.
+        const turnIndex = historyRef.current.length;
+        const audioPromise = stopTurnRecording();
+        startTurnRecording();
+
+        // Mark history index for late Azure pronunciation update.
+        azureUpdateIdxRef.current = turnIndex;
+
+        // Capture and clear the pending-end flag before any await.
         const shouldEnd = pendingEndRef.current;
         if (shouldEnd) {
           pendingEndRef.current = false;
@@ -536,7 +580,11 @@ export default function Home() {
 
         await handleUserTurn(text, pronunciation);
 
-        // Let the user finish their sentence, then close gracefully.
+        // Retroactively attach the audio URL to this turn once the recorder resolves.
+        audioPromise.then((url) => {
+          if (url) setHistory((h) => h.map((m, i) => (i === turnIndex ? { ...m, audioUrl: url } : m)));
+        });
+
         if (shouldEnd) await handleUserTurn("__END__");
       },
       onError: (e) => console.error("Deepgram STT error:", e),
@@ -567,6 +615,7 @@ export default function Home() {
     // Start Deepgram — failure is non-fatal (avatar TTS still works).
     try {
       await sttRef.current.start();
+      startTurnRecording(); // begin recording the first turn on Deepgram's mic stream
     } catch (e) {
       console.error("Deepgram STT failed to start:", e);
     }
@@ -650,14 +699,29 @@ export default function Home() {
         }
       }
     }
-    // After the closing message, keep isProcessingRef true so STT
-    // no longer submits new user turns.
-    if (!isEnd) isProcessingRef.current = false;
+    if (!isEnd) {
+      isProcessingRef.current = false;
+      // If the user spoke while the avatar was responding, process that turn now.
+      const buffered = bufferedUserTurnRef.current;
+      if (buffered) {
+        bufferedUserTurnRef.current = null;
+        const turnIndex = historyRef.current.length;
+        const audioPromise = stopTurnRecording();
+        startTurnRecording();
+        azureUpdateIdxRef.current = turnIndex;
+        await handleUserTurn(buffered.text, buffered.pronunciation);
+        audioPromise.then((url) => {
+          if (url) setHistory((h) => h.map((m, i) => (i === turnIndex ? { ...m, audioUrl: url } : m)));
+        });
+      }
+    }
   };
 
   const runEvaluation = async () => {
     setEvaluating(true);
 
+    // Stop turn recorder first — it uses Deepgram's mic stream which must still be alive.
+    await stopTurnRecording();
     // Stop both STT engines and recording the moment evaluation begins.
     sttRef.current?.stop();
     azureRef.current?.stop();
@@ -691,6 +755,7 @@ export default function Home() {
       clearTimeout(endTimeoutRef.current);
       endTimeoutRef.current = null;
     }
+    await stopTurnRecording(); // must come before sttRef.stop() which kills the mic stream
     sttRef.current?.stop();
     azureRef.current?.stop();
     if (!USE_HEYGEN) playerRef.current?.stop();
@@ -872,6 +937,13 @@ export default function Home() {
                 </div>
                 {m.role === "user" && m.pronunciation && (
                   <UtteranceBadges p={m.pronunciation} />
+                )}
+                {m.role === "user" && m.audioUrl && cefrResult && (
+                  <audio
+                    controls
+                    src={m.audioUrl}
+                    style={{ width: "100%", height: 28, marginTop: 6, accentColor: "#4f46e5", display: "block" }}
+                  />
                 )}
               </div>
             ))}

@@ -52,9 +52,11 @@ export class DeepgramSTT {
   private cb: SttCallbacks;
   private language: "fr" | "en" | "nl-BE";
 
-  // Accumulated across is_final segments until speech_final fires
+  // Accumulated across is_final segments until speech_final / UtteranceEnd fires
   private pendingTranscript = "";
   private pendingWords: DgWord[] = [];
+  /** Fallback timer — dispatches the accumulated utterance if speech_final never arrives. */
+  private utteranceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(language: "fr" | "en" | "nl-BE", callbacks: SttCallbacks) {
     this.language = language;
@@ -81,10 +83,11 @@ export class DeepgramSTT {
       `&smart_format=true` +
       `&encoding=linear16` +
       `&sample_rate=16000` +
-      // 500 ms of silence triggers speech_final — prevents interrupting mid-sentence.
-      // Deepgram still emits is_final on sentence boundaries; we accumulate those
-      // and only call onFinal once speech_final fires (speaker truly paused).
-      `&endpointing=500`;
+      // 300 ms silence triggers speech_final (was 500 — faster turn detection).
+      `&endpointing=300` +
+      // Deepgram fires UtteranceEnd after 1000 ms of silence following any is_final.
+      // This acts as a safety net when VAD never fires speech_final (e.g. background noise).
+      `&utterance_end_ms=1000`;
 
     // Deepgram's supported browser auth: API key as WebSocket subprotocol
     this.ws = new WebSocket(url, ["token", key]);
@@ -112,10 +115,60 @@ export class DeepgramSTT {
     await this.startAudio();
   }
 
+  /**
+   * Fires onFinal with the accumulated utterance and resets state.
+   * Called by speech_final, UtteranceEnd, and the 2.5 s fallback timer.
+   */
+  private dispatchUtterance() {
+    if (!this.pendingTranscript) return;
+
+    if (this.utteranceTimer) {
+      clearTimeout(this.utteranceTimer);
+      this.utteranceTimer = null;
+    }
+
+    const fullTranscript = this.pendingTranscript;
+    const allWords = this.pendingWords;
+    this.pendingTranscript = "";
+    this.pendingWords = [];
+
+    const avgConf =
+      allWords.length > 0
+        ? allWords.reduce((sum, w) => sum + (w.confidence ?? 0), 0) / allWords.length
+        : 0;
+
+    // Only calculate WPM for substantive turns (≥ 6 words).
+    let wpm = 0;
+    if (allWords.length >= 6) {
+      const duration = allWords[allWords.length - 1].end - allWords[0].start;
+      if (duration >= 0.5) {
+        wpm = Math.round((allWords.length / duration) * 60);
+      }
+    }
+
+    this.cb.onFinal?.(fullTranscript, {
+      text: fullTranscript,
+      pronunciationScore: Math.round(avgConf * 100),
+      wpm,
+      words: allWords.map((w) => ({
+        word: w.punctuated_word ?? w.word,
+        confidence: w.confidence ?? 0,
+      })),
+    });
+  }
+
   private onMessage(event: MessageEvent) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = JSON.parse(event.data as string) as any;
+
+      // UtteranceEnd: Deepgram detected 1000 ms of silence after the last word.
+      // Use it as a fallback trigger when speech_final doesn't fire (background noise).
+      if (data.type === "UtteranceEnd") {
+        this.dispatchUtterance();
+        return;
+      }
+
       if (data.type !== "Results") return;
 
       const alt = data.channel?.alternatives?.[0];
@@ -124,58 +177,35 @@ export class DeepgramSTT {
       const transcript = alt.transcript as string;
 
       if (data.is_final) {
-        // Accumulate this finalized segment
-        this.pendingTranscript +=
-          (this.pendingTranscript ? " " : "") + transcript;
-        const words: DgWord[] = alt.words ?? [];
-        this.pendingWords.push(...words);
+        this.pendingTranscript += (this.pendingTranscript ? " " : "") + transcript;
+        this.pendingWords.push(...(alt.words ?? []));
 
         if (data.speech_final) {
-          // Silence threshold reached — speaker has stopped. Fire onFinal with
-          // the full accumulated utterance and reset accumulation buffers.
-          const fullTranscript = this.pendingTranscript;
-          const allWords = this.pendingWords;
-          this.pendingTranscript = "";
-          this.pendingWords = [];
-
-          // Average word confidence → pronunciation quality score
-          const avgConf =
-            allWords.length > 0
-              ? allWords.reduce((sum, w) => sum + (w.confidence ?? 0), 0) / allWords.length
-              : (alt.confidence as number ?? 0);
-
-          // WPM from first-word start to last-word end across the full utterance
-          // Only calculate WPM for substantive turns (≥ 6 words), consistent
-          // with Azure's threshold so shortTurns counting stays accurate.
-          let wpm = 0;
-          if (allWords.length >= 6) {
-            const duration = allWords[allWords.length - 1].end - allWords[0].start;
-            if (duration >= 0.5) {
-              wpm = Math.round((allWords.length / duration) * 60);
-            }
-          }
-
-          this.cb.onFinal?.(fullTranscript, {
-            text: fullTranscript,
-            pronunciationScore: Math.round(avgConf * 100),
-            wpm,
-            words: allWords.map((w) => ({
-              word: w.punctuated_word ?? w.word,
-              confidence: w.confidence ?? 0,
-            })),
-          });
+          this.dispatchUtterance();
+        } else {
+          // Set a 2.5 s fallback: if speech_final never arrives (e.g. noisy environment),
+          // dispatch anyway so the conversation doesn't get stuck.
+          if (this.utteranceTimer) clearTimeout(this.utteranceTimer);
+          this.utteranceTimer = setTimeout(() => {
+            this.utteranceTimer = null;
+            this.dispatchUtterance();
+          }, 2500);
         }
-        // else: is_final but NOT speech_final — keep accumulating
       } else {
-        // Partial result: show accumulated confirmed text + live partial
+        // Partial: show accumulated confirmed text + live partial for live caption.
         const display = this.pendingTranscript
           ? this.pendingTranscript + " " + transcript
           : transcript;
         this.cb.onPartial?.(display);
       }
     } catch {
-      // Ignore malformed messages (e.g. keepalives)
+      // Ignore malformed messages (keepalives, metadata)
     }
+  }
+
+  /** Expose the mic stream so callers can attach a per-turn MediaRecorder. */
+  getStream(): MediaStream | null {
+    return this.mediaStream;
   }
 
   private async startAudio() {
@@ -223,7 +253,11 @@ export class DeepgramSTT {
     this.mediaStream?.getTracks().forEach((t) => t.stop());
     this.mediaStream = null;
 
-    // Reset accumulation state
+    // Cancel pending fallback timer and reset accumulation state
+    if (this.utteranceTimer) {
+      clearTimeout(this.utteranceTimer);
+      this.utteranceTimer = null;
+    }
     this.pendingTranscript = "";
     this.pendingWords = [];
   }
