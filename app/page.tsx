@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { DeepgramSTT } from "@/lib/deepgram-stt";
-import { AzureSTT, type PronunciationResult, type WordScore } from "@/lib/azure-stt";
+import type { PronunciationResult, WordScore } from "@/lib/azure-stt";
 import { StreamingAudioPlayer } from "@/lib/audio-player";
 import { SessionRecorder } from "@/lib/session-recorder";
 import { getSupabase } from "@/lib/supabase";
@@ -359,11 +359,6 @@ export default function Home() {
   const audioBlobUrlRef = useRef<string | null>(null);
 
   const sttRef = useRef<DeepgramSTT | null>(null);
-  const azureRef = useRef<AzureSTT | null>(null);
-  /** Latest unmatched Azure pronunciation result — consumed by the next Deepgram onFinal. */
-  const azurePendingRef = useRef<PronunciationResult | null>(null);
-  /** Index in history[] where the current Deepgram turn will land — used for late Azure updates. */
-  const azureUpdateIdxRef = useRef<number | null>(null);
   const playerRef = useRef<StreamingAudioPlayer | null>(null);
   const liveAvatarRef = useRef<LiveAvatarHandle | null>(null);
   const recorderRef = useRef<SessionRecorder | null>(null);
@@ -499,7 +494,7 @@ export default function Home() {
     }
   };
 
-  const stopTurnRecording = (): Promise<string | null> => {
+  const stopTurnRecording = (): Promise<{ url: string; blob: Blob } | null> => {
     const mr = turnRecorderRef.current;
     turnRecorderRef.current = null;
     if (!mr || mr.state === "inactive") return Promise.resolve(null);
@@ -507,10 +502,34 @@ export default function Home() {
       mr.onstop = () => {
         const blob = new Blob(turnChunksRef.current, { type: turnMimeRef.current });
         turnChunksRef.current = [];
-        resolve(blob.size > 0 ? URL.createObjectURL(blob) : null);
+        if (blob.size === 0) { resolve(null); return; }
+        resolve({ url: URL.createObjectURL(blob), blob });
       };
       mr.stop();
     });
+  };
+
+  // ── server-side Azure phoneme assessment ──────────────────────────────────
+  // Sends the recorded audio blob to /api/pronunciation, then retroactively
+  // replaces the Deepgram confidence scores in history with Azure phoneme scores.
+  // Runs non-blocking — the conversation never waits for it.
+  const callPronunciationAPI = (blob: Blob, turnIndex: number, dgWpm: number) => {
+    const form = new FormData();
+    form.append("audio", blob, "turn.webm");
+    form.append("language", language);
+    form.append("wpm", String(dgWpm));
+    fetch("/api/pronunciation", { method: "POST", body: form })
+      .then((r) => r.json())
+      .then((result: PronunciationResult | null) => {
+        if (!result) return;
+        setHistory((h) =>
+          h.map((m, i) => {
+            if (i !== turnIndex || m.role !== "user" || !m.pronunciation) return m;
+            return { ...m, pronunciation: result };
+          })
+        );
+      })
+      .catch((e) => console.error("Pronunciation REST error:", e));
   };
 
   // ── session ──
@@ -548,25 +567,21 @@ export default function Home() {
       onFinal: async (text, dgPron) => {
         if (!text.trim()) return;
 
-        // Build Azure-compatible pronunciation from Deepgram data (placeholder
-        // until Azure's per-phoneme result arrives and updates it retroactively).
-        const convertedWords: WordScore[] = dgPron.words.map((w) => ({
-          word: w.word,
-          confidence: w.confidence,
-          accuracyScore: Math.round(w.confidence * 100),
-          errorType: "None",
-        }));
-        const azurePron = azurePendingRef.current;
-        azurePendingRef.current = null;
-        const pronunciation: PronunciationResult = azurePron
-          ? { ...azurePron, wpm: dgPron.wpm }
-          : {
-              text: dgPron.text,
-              pronunciationScore: dgPron.pronunciationScore,
-              accuracyScore: dgPron.pronunciationScore,
-              wpm: dgPron.wpm,
-              words: convertedWords,
-            };
+        // Initial pronunciation built from Deepgram word-confidence scores.
+        // The /api/pronunciation REST call fires after the turn recording stops
+        // and retroactively replaces this with Azure phoneme-level scores.
+        const pronunciation: PronunciationResult = {
+          text: dgPron.text,
+          pronunciationScore: dgPron.pronunciationScore,
+          accuracyScore: dgPron.pronunciationScore,
+          wpm: dgPron.wpm,
+          words: dgPron.words.map((w) => ({
+            word: w.word,
+            confidence: w.confidence,
+            accuracyScore: Math.round(w.confidence * 100),
+            errorType: "None",
+          })),
+        };
 
         // Avatar is still talking or processing a previous turn — queue this turn.
         // All queued turns are replayed in order once the avatar finishes speaking.
@@ -581,11 +596,8 @@ export default function Home() {
         // Stop current turn recorder (captures this utterance's audio),
         // then immediately restart for the next turn.
         const turnIndex = historyRef.current.length;
-        const audioPromise = stopTurnRecording();
+        const recordingPromise = stopTurnRecording();
         startTurnRecording();
-
-        // Mark history index for late Azure pronunciation update.
-        azureUpdateIdxRef.current = turnIndex;
 
         // Capture and clear the pending-end flag before any await.
         const shouldEnd = pendingEndRef.current;
@@ -599,36 +611,17 @@ export default function Home() {
 
         await handleUserTurn(text, pronunciation);
 
-        // Retroactively attach the audio URL to this turn once the recorder resolves.
-        audioPromise.then((url) => {
-          if (url) setHistory((h) => h.map((m, i) => (i === turnIndex ? { ...m, audioUrl: url } : m)));
+        // Retroactively attach the audio URL and kick off Azure phoneme assessment.
+        // Both happen via the same .then() so they share the resolved blob.
+        recordingPromise.then((recording) => {
+          if (!recording) return;
+          setHistory((h) => h.map((m, i) => (i === turnIndex ? { ...m, audioUrl: recording.url } : m)));
+          callPronunciationAPI(recording.blob, turnIndex, dgPron.wpm);
         });
 
         if (shouldEnd) await handleUserTurn("__END__");
       },
       onError: (e) => console.error("Deepgram STT error:", e),
-    });
-
-    // ── Azure: pronunciation assessment only (per-phoneme word scores) ──────
-    azureRef.current = new AzureSTT(language, {
-      onFinal: (_, azureResult) => {
-        // Ignore if avatar is speaking — avoids capturing TTS audio.
-        if (isSpeakingRef.current) return;
-        azurePendingRef.current = azureResult;
-        // Deepgram already fired → retroactively update the stored turn.
-        if (azureUpdateIdxRef.current !== null) {
-          const idx = azureUpdateIdxRef.current;
-          azureUpdateIdxRef.current = null;
-          setHistory((h) =>
-            h.map((m, i) => {
-              if (i !== idx || m.role !== "user" || !m.pronunciation) return m;
-              // Azure scores + keep Deepgram's WPM (more accurate timestamps).
-              return { ...m, pronunciation: { ...azureResult, wpm: m.pronunciation.wpm } };
-            })
-          );
-        }
-      },
-      onError: (e) => console.error("Azure pronunciation error:", e),
     });
 
     // Start Deepgram — failure is non-fatal (avatar TTS still works).
@@ -638,9 +631,6 @@ export default function Home() {
     } catch (e) {
       console.error("Deepgram STT failed to start:", e);
     }
-
-    // Start Azure in parallel (non-blocking) — pronunciation only.
-    azureRef.current.start().catch((e) => console.error("Azure STT failed to start:", e));
 
     // Kick off the conversation regardless of STT status
     await handleUserTurn("__START__");
@@ -736,12 +726,13 @@ export default function Home() {
     const buffered = bufferedTurnsRef.current.shift();
     if (!buffered) return;
     const turnIndex = historyRef.current.length;
-    const audioPromise = stopTurnRecording();
+    const recordingPromise = stopTurnRecording();
     startTurnRecording();
-    azureUpdateIdxRef.current = turnIndex;
     await handleUserTurn(buffered.text, buffered.pronunciation);
-    audioPromise.then((url) => {
-      if (url) setHistory((h) => h.map((m, i) => (i === turnIndex ? { ...m, audioUrl: url } : m)));
+    recordingPromise.then((recording) => {
+      if (!recording) return;
+      setHistory((h) => h.map((m, i) => (i === turnIndex ? { ...m, audioUrl: recording.url } : m)));
+      callPronunciationAPI(recording.blob, turnIndex, buffered.pronunciation.wpm);
     });
   };
 
@@ -750,9 +741,8 @@ export default function Home() {
 
     // Stop turn recorder first — it uses Deepgram's mic stream which must still be alive.
     await stopTurnRecording();
-    // Stop both STT engines and recording the moment evaluation begins.
+    // Stop STT and session recording the moment evaluation begins.
     sttRef.current?.stop();
-    azureRef.current?.stop();
     const blob = await recorderRef.current?.stop() ?? null;
     if (blob && blob.size > 0) {
       // Revoke previous object URL to avoid memory leaks
@@ -785,7 +775,6 @@ export default function Home() {
     }
     await stopTurnRecording(); // must come before sttRef.stop() which kills the mic stream
     sttRef.current?.stop();
-    azureRef.current?.stop();
     if (!USE_HEYGEN) playerRef.current?.stop();
     // Recorder may already have been stopped by runEvaluation — stop() is safe
     // to call twice (returns null when MediaRecorder is already inactive).
