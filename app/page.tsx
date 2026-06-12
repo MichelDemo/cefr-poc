@@ -466,7 +466,9 @@ export default function Home() {
     try {
       turnMimeRef.current = mimeType;
       turnChunksRef.current = [];
-      const mr = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128_000 });
+      // 256 kbps opus: extra spectral headroom before the 16 kHz downsample in
+      // blobToWav16kMono — costs nothing, preserves consonant detail.
+      const mr = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 256_000 });
       mr.ondataavailable = (e) => { if (e.data.size > 0) turnChunksRef.current.push(e.data); };
       mr.onerror = (e) => console.error("TurnRecorder error:", e);
       mr.start(500); // collect chunks every 500 ms
@@ -663,8 +665,25 @@ export default function Home() {
     // MediaRecorder and the player's AudioContext (for mixing), so there is no
     // dual-AudioContext conflict of any kind.
     try {
+      // Fidelity-first constraints for the ASSESSMENT stream:
+      // - noiseSuppression OFF: browser noise suppression is telephony-grade
+      //   and strips broadband fricative energy (/s/ /θ/ /f/ /ʃ/) — exactly
+      //   the phonemes pronunciation assessment needs intact.
+      // - autoGainControl OFF: AGC pumping distorts phoneme energy; levels are
+      //   normalised later in blobToWav16kMono instead.
+      // - echoCancellation stays ON: it keeps the avatar's question (playing
+      //   through the speakers while the turn recorder runs) out of the clip.
+      // Safe because this stream is SEPARATE from AzureSTT's internal mic
+      // stream — the live recognizer keeps its own DSP-processed signal, so
+      // VAD/segmentation behaviour is unaffected.
       micStreamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true },
+        audio: {
+          autoGainControl: false,
+          echoCancellation: true,
+          noiseSuppression: false,
+          channelCount: 1,
+          sampleRate: 48000,
+        },
         video: false,
       });
       // Mix the mic into the player's session-recording destination so the
