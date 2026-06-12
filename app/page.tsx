@@ -478,7 +478,7 @@ export default function Home() {
     }
   };
 
-  const stopTurnRecording = (): Promise<{ url: string; blob: Blob } | null> => {
+  const stopTurnRecording = (): Promise<{ blob: Blob } | null> => {
     const mr = turnRecorderRef.current;
     turnRecorderRef.current = null;
     if (!mr || mr.state === "inactive") return Promise.resolve(null);
@@ -487,7 +487,9 @@ export default function Home() {
         const blob = new Blob(turnChunksRef.current, { type: turnMimeRef.current });
         turnChunksRef.current = [];
         if (blob.size === 0) { resolve(null); return; }
-        resolve({ url: URL.createObjectURL(blob), blob });
+        // No object URL here — the transcript player uses the conditioned WAV
+        // created in callPronunciationAPI, not the raw webm.
+        resolve({ blob });
       };
       mr.stop();
     });
@@ -519,6 +521,16 @@ export default function Home() {
       // Decode failure — send the original container and let the server try.
       console.warn("[pronunciation] WAV conversion failed, sending raw blob:", e);
     }
+
+    // The transcript's per-turn player gets the CONDITIONED WAV, not the raw
+    // webm: the raw track is recorded with AGC off and can be inaudibly quiet,
+    // while the WAV is silence-trimmed and peak-normalised — and it is exactly
+    // the audio the assessment engines heard, so listening back lets you check
+    // the judge's verdicts against the same evidence.
+    const playbackUrl = URL.createObjectURL(audio);
+    setHistory((h) =>
+      h.map((m, i) => (i === turnIndex && m.role === "user" ? { ...m, audioUrl: playbackUrl } : m))
+    );
 
     const form = new FormData();
     form.append("audio", audio, filename);
@@ -646,12 +658,11 @@ export default function Home() {
 
         await handleUserTurn(text, pronunciation);
 
-        // Attach audio URL + kick off accurate REST pronunciation assessment.
-        // Pass 1 (SDK scores) is already shown; pass 2 overwrites with scores
-        // computed against the LLM-corrected intended text.
+        // Kick off the assessment. callPronunciationAPI also attaches the
+        // conditioned WAV to the transcript player (the raw webm is recorded
+        // with AGC off and can be inaudibly quiet).
         recordingPromise.then((recording) => {
           if (!recording) return;
-          setHistory((h) => h.map((m, i) => (i === turnIndex ? { ...m, audioUrl: recording.url } : m)));
           callPronunciationAPI(recording.blob, turnIndex, azurePron.wpm, text, questionContext);
         });
 
@@ -826,7 +837,6 @@ export default function Home() {
     await handleUserTurn(buffered.text, buffered.pronunciation);
     recordingPromise.then((recording) => {
       if (!recording) return;
-      setHistory((h) => h.map((m, i) => (i === turnIndex ? { ...m, audioUrl: recording.url } : m)));
       callPronunciationAPI(recording.blob, turnIndex, buffered.pronunciation.wpm ?? 0, buffered.text, questionContext);
     });
   };

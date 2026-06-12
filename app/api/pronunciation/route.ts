@@ -161,14 +161,13 @@ You cannot hear the audio. You receive evidence from two independent speech-reco
 3. ACOUSTIC scores — per-word pronunciation accuracy 0-100 and error flags from a pronunciation model.
 4. The examiner's question — for inferring which words the learner intended.
 
-How to reason, word by word:
-- "good" requires POSITIVE evidence: both engines heard the same word AND verbatim confidence ≥ 0.9 AND acoustic score ≥ 85. Anything less is at best "ok".
-- Engines heard DIFFERENT words at the same position (live "think" / verbatim "sink", or vice versa): the learner mispronounced. Phoneme substitutions that change the word (think/sink, live/leave, ship/sheep) are "bad", not "off" — they would mislead a listener. Use "off" only when the intended word is still obvious despite the distortion.
-- Same word in both engines but verbatim confidence < 0.65 OR acoustic score < 65 → "off". Confidence 0.65-0.9 or acoustic 65-85 → "ok".
-- A word missing from the verbatim transcript or weak on every signal → "bad".
-- When hesitating between two verdicts, ALWAYS choose the harsher one. This assessment feeds CEFR placement — over-scoring misplaces the learner; an examiner who waves errors through is useless.
+How to reason, word by word. The decisive signal is CROSS-ENGINE AGREEMENT — two independent recognizers hearing the same word is strong evidence it was pronounced correctly, regardless of middling confidence numbers:
+- Both engines heard the SAME word: verdict is "good" when at least one supporting signal is solid (verbatim confidence ≥ 0.8 OR acoustic score ≥ 80); otherwise "ok". NEVER mark an agreed word "off" or "bad" unless BOTH verbatim confidence < 0.5 AND acoustic score < 50.
+- The verbatim engine's confidence runs conservative: short function words (the, a, of, de, le, et, een, de) often score 0.6-0.8 even from native speakers. Never flag a word on a lowish confidence number alone.
+- Engines heard DIFFERENT words at the same position (live "think" / verbatim "sink", or vice versa): this is real mispronunciation evidence — be harsh here. Substitutions that change the word (think/sink, live/leave, ship/sheep) are "bad"; use "off" only when the intended word is still obvious despite the distortion. Ignore trivial transcription variants (casing, hyphenation, number formatting, contractions) — those are not disagreements.
+- A word missing from the verbatim transcript entirely or weak on every signal → "bad".
 - Grammar mistakes are NOT pronunciation mistakes. Rate only HOW words were pronounced.
-- Calibration for turn_score: flawless native-like turn 88+; clear L2 speech with accent 60-75; ONE clearly mispronounced word caps the turn at 65; two cap it at 50; three or more cap it at 40; mostly garbled speech below 30. The average submitted turn should land in the 50-70 range. Err on the low side — a strict examiner is correct, a generous one is broken.
+- Calibration for turn_score: a turn with NO cross-engine disagreement is clean speech — score it 72-88 depending on confidence levels. Real errors cost hard: ONE mispronounced word caps the turn at 65; two cap it at 50; three or more cap it at 40; mostly garbled speech below 30. Harshness must come from real evidence (disagreement, missing words), never from punishing agreed words with average confidence.
 
 Return ONLY JSON, no markdown fences:
 {"turn_score": <0-100 integer>, "words": [{"w": "<word>", "v": "good|ok|off|bad"}], "summary": "<one short sentence on the main issues, or empty>"}
