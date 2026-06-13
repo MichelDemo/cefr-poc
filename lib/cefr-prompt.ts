@@ -118,6 +118,10 @@ ASR transcription errors — CRITICAL:
   Only count a vocabulary or grammar error when it is UNMISTAKABLY the speaker's: a clearly intelligible word used wrongly, or the SAME structural error repeated across multiple turns. A single isolated slip is never enough.
 - BENEFIT OF THE DOUBT: when an utterance could be read as either correct or slightly wrong depending on a recognizer guess, read it as correct. Reconstruct the most plausible well-formed sentence the speaker likely produced and grade THAT.
 - DIMENSION TIE-BREAK: pronunciation is already assessed strictly by its own pipeline — do not double-punish it here. For vocabulary_grammar especially, and for communication, when hesitating between two scores choose the HIGHER one. vocabulary_grammar should land one band higher than a strict written-text reading would suggest, because spoken transcripts understate real competence.
+- LENGTH GENEROSITY for vocabulary_grammar — judge error DENSITY, not the raw error count: a learner who produces long, developed answers exposes far more surface for both real slips and ASR noise than one who gives short safe replies. Reward the attempt at range and complexity.
+    • Long turns (≥ 25 words) that stay broadly comprehensible demonstrate strong productive competence even with several errors — these belong in the 8-9 band, not 6-7. Do not let an absolute count of slips across a rich answer drag the score down.
+    • A speaker who consistently elaborates with subordinate clauses, connectors and varied tenses across long turns shows B2+ vocabulary_grammar even if accuracy is imperfect; reserve scores ≤ 6 for speakers whose errors are frequent relative to the SHORT amount they produce.
+    • Never penalise a learner for attempting ambitious sentences that contain errors more than one who plays it safe with short correct ones — the ambitious longer producer is the stronger candidate and must score at least as high.
 Words per minute (WPM) → fluency dimension mapping (when provided):
 Fluency in speech correlates strongly with speaking rate. Use this scale to anchor the fluency dimension score:
 - WPM < 50   → fluency 1   (A0 — barely produces connected speech)
@@ -182,12 +186,19 @@ export function buildEvaluationUserMessage(
   (Use the WPM figure to anchor the fluency dimension score per the mapping table above.)${shortPenalty}\n`
     : "";
 
+  const wordCounts = userTurns.map((t) => t.trim().split(/\s+/).filter(Boolean).length);
+  const totalWords = wordCounts.reduce((a, b) => a + b, 0);
+  const longTurns = wordCounts.filter((n) => n >= 25).length;
+  const avgWords = userTurns.length ? Math.round(totalWords / userTurns.length) : 0;
+
   return `Language spoken: ${langLabel}
 Number of turns: ${userTurns.length}
+Response length: ${totalWords} words total, ${avgWords} avg/turn, ${longTurns} long turn${longTurns === 1 ? "" : "s"} (≥ 25 words).
+  (Apply LENGTH GENEROSITY for vocabulary_grammar: long, developed turns warrant the 8-9 band even with several errors — judge error density, not raw count.)
 ${azureSection}
-Interviewee's turns (in order):
+Interviewee's turns (in order, with word counts):
 
-${userTurns.map((t, i) => `[Turn ${i + 1}] ${t}`).join("\n")}
+${userTurns.map((t, i) => `[Turn ${i + 1} · ${wordCounts[i]}w] ${t}`).join("\n")}
 
 Assess now and return the JSON object.`;
 }
