@@ -123,24 +123,22 @@ ASR transcription errors — CRITICAL:
     • A speaker who consistently elaborates with subordinate clauses, connectors and varied tenses across long turns shows B2+ vocabulary_grammar even if accuracy is imperfect; reserve scores ≤ 6 for speakers whose errors are frequent relative to the SHORT amount they produce.
     • Never penalise a learner for attempting ambitious sentences that contain errors more than one who plays it safe with short correct ones — the ambitious longer producer is the stronger candidate and must score at least as high.
 Words per minute (WPM) → fluency dimension mapping (when provided):
-Fluency in speech correlates strongly with speaking rate. Use this scale to anchor the fluency dimension score:
-- WPM < 50   → fluency 1   (A0 — barely produces connected speech)
-- WPM 50-59  → fluency 2   (A0/A1 — heavily laboured)
-- WPM 60-69  → fluency 2-3 (A0/A1 — very slow, long pauses)
-- WPM 70-79  → fluency 3   (A1 — slow, frequent stops)
-- WPM 80-89  → fluency 4   (A1/A2 — noticeably slow)
-- WPM 90-99  → fluency 5   (A2 — below natural pace)
-- WPM 100-109 → fluency 5-6 (A2/B1 — some hesitation)
-- WPM 110-119 → fluency 6  (B1 — approaching natural)
-- WPM 120-129 → fluency 7  (B1/B2 — mostly natural, occasional pause)
-- WPM 130-139 → fluency 8  (B2/C1 — natural conversational pace)
-- WPM 140-149 → fluency 9  (C1/C2 — smooth, effortless delivery)
+Fluency in speech correlates with speaking rate. IMPORTANT: this WPM is measured over the whole utterance INCLUDING the speaker's thinking pauses, so conversational L2 rates run lower than written estimates — the bands below are calibrated for that and are deliberately generous. Use this scale to anchor fluency:
+- WPM < 40   → fluency 1   (A0 — barely produces connected speech)
+- WPM 40-49  → fluency 2   (A0/A1 — heavily laboured)
+- WPM 50-59  → fluency 3   (A1 — slow, frequent stops)
+- WPM 60-74  → fluency 4-5 (A2 — below natural pace but functional)
+- WPM 75-89  → fluency 5-6 (A2/B1 — some hesitation, ideas come through)
+- WPM 90-104 → fluency 6-7 (B1 — approaching natural conversational pace)
+- WPM 105-119 → fluency 7-8 (B1/B2 — mostly natural, occasional pause)
+- WPM 120-134 → fluency 8  (B2/C1 — natural conversational pace)
+- WPM 135-149 → fluency 9  (C1/C2 — smooth, effortless delivery)
 - WPM ≥ 150  → fluency 10  (C2 — fully native-like rate)
-Hard boundaries (non-negotiable):
-- WPM < 80  → fluency ≤ 3 regardless of transcript quality
-- WPM ≥ 150 → fluency 10 regardless of occasional hesitations in the transcript
-Native conversational English: 130-160 WPM. French/Dutch tend to be slightly faster.
-WPM is the primary anchor for fluency. Only adjust within the 1-point band shown above when pause patterns or self-corrections are severe and frequent.
+Hard boundaries:
+- WPM < 50  → fluency ≤ 3 (only this far down is a genuine fluency problem)
+- WPM ≥ 135 → fluency ≥ 9 regardless of occasional hesitations in the transcript
+When the measured WPM sits on a band boundary, choose the HIGHER fluency value — pause-inclusive WPM understates real fluency.
+WPM is the primary anchor for fluency, but a speaker who develops ideas across long turns with connectors and varied structure should not score below 6 on fluency even if their rate is modest — content-driven thinking pauses are not disfluency.
 
 Calibration anchors — lower levels (ceiling applies only when pattern is consistent across most turns):
 - Speaker relies exclusively on present tense with no complex structures attempted → max A2
