@@ -21,6 +21,46 @@ function escapeXml(text: string): string {
 }
 
 /**
+ * Per-language voice profile.
+ *   voice — a natural multilingual / regional neural voice (English was
+ *           previously voiced by the FRENCH Vivienne voice — fixed).
+ *   style — Azure mstts:express-as conversational style for warmth and
+ *           expressiveness; empty when the voice doesn't support styles
+ *           (multilingual voices ignore unsupported styles, but we only set
+ *           one where it genuinely lands).
+ */
+const VOICE_PROFILE: Record<ConvLang, { lang: string; voice: string; style: string }> = {
+  // en-US-AvaNeural: very natural AND documented to support express-as styles
+  // (the Multilingual variant is natural but has no styles — an unsupported
+  // style would fail the request and silence the avatar).
+  en: { lang: "en-US", voice: "en-US-AvaNeural", style: "chat" },
+  fr: { lang: "fr-FR", voice: "fr-FR-VivienneMultilingualNeural", style: "" },
+  // nl-BE-DenaNeural has no documented express-as styles — leave style empty so
+  // the SSML can't be rejected; it still gets the livelier prosody below.
+  "nl-BE": { lang: "nl-BE", voice: "nl-BE-DenaNeural", style: "" },
+};
+
+/**
+ * Build expressive SSML.
+ * - mstts:express-as style="chat" + styledegree gives a warm, conversational
+ *   register instead of the flat reading voice.
+ * - prosody rate is near-natural (-3% vs the old sluggish -10%, which was the
+ *   main thing draining expressiveness) with a slight pitch lift; pitch
+ *   contour adds gentle intonation movement so sentences don't stay monotone.
+ */
+function buildSSML(text: string, p: { lang: string; voice: string; style: string }): string {
+  const inner = `<prosody rate="-3%" pitch="+3%">${escapeXml(text)}</prosody>`;
+  const styled = p.style
+    ? `<mstts:express-as style="${p.style}" styledegree="1.3">${inner}</mstts:express-as>`
+    : inner;
+  return (
+    `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" ` +
+    `xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${p.lang}">` +
+    `<voice name="${p.voice}">${styled}</voice></speak>`
+  );
+}
+
+/**
  * Starts an Azure TTS request immediately and returns a reader for the PCM stream.
  * Calling this function (without await) fires the HTTP request right away so it
  * runs in parallel with Claude generation.
@@ -33,10 +73,7 @@ async function startTTS(
   if (!key || !text.trim()) return null;
 
   const region = process.env.AZURE_SPEECH_REGION ?? "westeurope";
-  const voice =
-    language === "nl-BE" ? "nl-BE-DenaNeural" : "fr-FR-VivienneMultilingualNeural";
-  const lang =
-    language === "fr" ? "fr-FR" : language === "nl-BE" ? "nl-BE" : "en-US";
+  const profile = VOICE_PROFILE[language] ?? VOICE_PROFILE.en;
 
   const res = await fetch(
     `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`,
@@ -47,12 +84,12 @@ async function startTTS(
         "Content-Type": "application/ssml+xml",
         "X-Microsoft-OutputFormat": "raw-24khz-16bit-mono-pcm",
       },
-      body: `<speak version="1.0" xml:lang="${lang}"><voice name="${voice}"><prosody rate="-10%">${escapeXml(text)}</prosody></voice></speak>`,
+      body: buildSSML(text, profile),
     }
   );
 
   if (!res.ok || !res.body) {
-    console.error("Azure TTS error:", res.status);
+    console.error("Azure TTS error:", res.status, await res.text().catch(() => ""));
     return null;
   }
 
