@@ -161,13 +161,23 @@ You cannot hear the audio. You receive evidence from two independent speech-reco
 3. ACOUSTIC scores — per-word pronunciation accuracy 0-100 and error flags from a pronunciation model.
 4. The examiner's question — for inferring which words the learner intended.
 
-How to reason, word by word. The decisive signal is CROSS-ENGINE AGREEMENT — two independent recognizers hearing the same word is strong evidence it was pronounced correctly, regardless of middling confidence numbers:
-- Both engines heard the SAME word: verdict is "good" when at least one supporting signal is solid (verbatim confidence ≥ 0.8 OR acoustic score ≥ 80); otherwise "ok". NEVER mark an agreed word "off" or "bad" unless BOTH verbatim confidence < 0.5 AND acoustic score < 50.
-- The verbatim engine's confidence runs conservative: short function words (the, a, of, de, le, et, een, de) often score 0.6-0.8 even from native speakers. Never flag a word on a lowish confidence number alone.
-- Engines heard DIFFERENT words at the same position (live "think" / verbatim "sink", or vice versa): this is real mispronunciation evidence — be harsh here. Substitutions that change the word (think/sink, live/leave, ship/sheep) are "bad"; use "off" only when the intended word is still obvious despite the distortion. Ignore trivial transcription variants (casing, hyphenation, number formatting, contractions) — those are not disagreements.
+Two signals carry different meaning. CROSS-ENGINE AGREEMENT tells you whether the word was RECOGNIZABLE (right word vs. a mispronunciation that changed the word). The ACOUSTIC score, within an agreed word, tells you HOW NATIVE-LIKE it sounded — this is what separates a near-native speaker from a heavily-accented one, and you MUST let it spread the scores. Do not compress everyone into the middle: reward near-native pronunciation at the top, mark strong non-native accents down even when the word is understood.
+
+How to reason, word by word:
+- Engines AGREE on the word AND acoustic ≥ 82 (or, if acoustic is unavailable, verbatim confidence ≥ 0.9) → "good". Near-native, crisp.
+- Engines AGREE but acoustic 62-82 → "ok". Clear, understandable, but a real non-native accent is present. This is the honest verdict for most learners — use it freely.
+- Engines AGREE but acoustic < 62 → "off". The word was understood yet pronounced with a strong, distracting accent. THIS IS THE STRICTNESS THE EXAMINER WANTS — a recognizable word is not automatically a well-pronounced one.
+- The verbatim engine's confidence runs conservative: short function words (the, a, of, de, le, et, een, de) often score 0.6-0.8 even from native speakers. Use the ACOUSTIC score, not confidence, to judge accent strength on agreed words; only fall back to confidence when acoustic is missing.
+- Engines heard DIFFERENT words at the same position (live "think" / verbatim "sink", or vice versa): real mispronunciation that changed the word. Substitutions (think/sink, live/leave, ship/sheep) are "bad"; use "off" only when the intended word is still obvious despite the distortion. Ignore trivial transcription variants (casing, hyphenation, number formatting, contractions) — those are not disagreements.
 - A word missing from the verbatim transcript entirely or weak on every signal → "bad".
 - Grammar mistakes are NOT pronunciation mistakes. Rate only HOW words were pronounced.
-- Calibration for turn_score: a turn with NO cross-engine disagreement is clean speech — score it 75-90 depending on confidence levels. Real errors still cost: ONE mispronounced word caps the turn at 70; two cap it at 55; three or more cap it at 45; mostly garbled speech below 35. Harshness must come from real evidence (disagreement, missing words), never from punishing agreed words with average confidence.
+
+Calibration for turn_score — use the FULL range, do not cluster:
+- Near-native turn (most words "good", acoustic mostly ≥ 85, no disagreement): 90-100. Be generous here — excellent pronunciation should clearly read as excellent.
+- Clear but accented (mostly "ok"): 68-82.
+- Noticeable non-native accent across the turn (several "off" from low acoustic on agreed words): 50-65. Accent strength alone, with no word-changing errors, can legitimately land here.
+- Word-changing errors cost on top of accent: ONE such error caps the turn at 65; two at 50; three or more at 40; mostly garbled below 30.
+Let acoustic scores genuinely move the number both ways — high earns the top, low pulls down.
 
 Return ONLY JSON, no markdown fences:
 {"turn_score": <0-100 integer>, "words": [{"w": "<word>", "v": "good|ok|off|bad"}], "summary": "<one short sentence on the main issues, or empty>"}
@@ -223,11 +233,14 @@ async function judge(
 // Verdict → display mapping (confidence buckets match wordColor() in page.tsx).
 // Deliberately harsh: flagged words cost real points so the turn average drops
 // visibly when errors are present.
+// Wider spread so accent strength shows: near-native "good" reaches the green
+// ceiling, strong-accent "off" drops into orange/red. "ok" is the honest
+// middle for clear-but-accented speech.
 const VERDICT_MAP: Record<string, { confidence: number; accuracyScore: number; errorType: string }> = {
-  good: { confidence: 1.0,  accuracyScore: 90, errorType: "None" },
-  ok:   { confidence: 0.7,  accuracyScore: 70, errorType: "None" },
-  off:  { confidence: 0.45, accuracyScore: 45, errorType: "Mispronunciation" },
-  bad:  { confidence: 0.2,  accuracyScore: 18, errorType: "Mispronunciation" },
+  good: { confidence: 1.0,  accuracyScore: 96, errorType: "None" },
+  ok:   { confidence: 0.7,  accuracyScore: 72, errorType: "None" },
+  off:  { confidence: 0.45, accuracyScore: 42, errorType: "Mispronunciation" },
+  bad:  { confidence: 0.2,  accuracyScore: 16, errorType: "Mispronunciation" },
 };
 
 // ─── Route ────────────────────────────────────────────────────────────────────
