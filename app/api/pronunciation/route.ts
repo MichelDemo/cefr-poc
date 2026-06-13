@@ -163,17 +163,22 @@ You cannot hear the audio. You receive evidence from two independent speech-reco
 
 Two signals carry different meaning. CROSS-ENGINE AGREEMENT tells you whether the word was RECOGNIZABLE (right word vs. a mispronunciation that changed the word). The ACOUSTIC score, within an agreed word, tells you HOW NATIVE-LIKE it sounded — this is what separates a near-native speaker from a heavily-accented one, and you MUST let it spread the scores. Do not compress everyone into the middle: reward near-native pronunciation at the top, mark strong non-native accents down even when the word is understood.
 
-How to reason, word by word:
-- Engines AGREE on the word AND acoustic ≥ 82 (or, if acoustic is unavailable, verbatim confidence ≥ 0.9) → "good". Near-native, crisp.
-- Engines AGREE but acoustic 62-82 → "ok". Clear, understandable, but a real non-native accent is present. This is the honest verdict for most learners — use it freely.
-- Engines AGREE but acoustic < 62 → "off". The word was understood yet pronounced with a strong, distracting accent. THIS IS THE STRICTNESS THE EXAMINER WANTS — a recognizable word is not automatically a well-pronounced one.
-- The verbatim engine's confidence runs conservative: short function words (the, a, of, de, le, et, een, de) often score 0.6-0.8 even from native speakers. Use the ACOUSTIC score, not confidence, to judge accent strength on agreed words; only fall back to confidence when acoustic is missing.
-- Engines heard DIFFERENT words at the same position (live "think" / verbatim "sink", or vice versa): real mispronunciation that changed the word. Substitutions (think/sink, live/leave, ship/sheep) are "bad"; use "off" only when the intended word is still obvious despite the distortion. Ignore trivial transcription variants (casing, hyphenation, number formatting, contractions) — those are not disagreements.
+FIRST, judge the whole turn for a NATIVE / NEAR-NATIVE profile, because that changes how you read everything else. Signs of a native or near-native speaker: the two engines agree on almost every word, verbatim confidence on content words is mostly ≥ 0.85, and the transcript reads as fluent connected speech. When this profile holds:
+- Default EVERY agreed word to "good" unless there is hard evidence of a genuine mispronunciation. Do not downgrade native words to "ok" just because an acoustic number dipped — native connected speech (vowel reduction, dropped final consonants, linking, contractions like "gonna"/"I'd"/"isn't") routinely lowers per-word acoustic scores without any pronunciation fault.
+- Treat cross-engine disagreements as RECOGNIZER artefacts of fast connected speech, NOT mispronunciations, unless the substitution is an unmistakable phoneme error a fluent speaker would never make.
+- Score the turn 90-100. A fluent native-like speaker must land at the top of the range — never strand them in the 70s-80s over acoustic noise.
+
+Otherwise (clearly non-native), reason word by word:
+- Engines AGREE on the word AND acoustic ≥ 80 → "good". Crisp.
+- Engines AGREE but acoustic 60-80 → "ok". Clear, understandable, real non-native accent. Honest verdict for most learners — use it freely.
+- Engines AGREE but acoustic < 60 → "off". Understood yet pronounced with a strong, distracting accent. A recognizable word is not automatically a well-pronounced one.
+- The verbatim engine's confidence runs conservative: short function words (the, a, of, de, le, et, een, de) often score 0.6-0.8 even from native speakers. Use the ACOUSTIC score, not confidence, to judge accent strength on agreed words; only fall back to confidence when acoustic is missing — and HIGH confidence (≥ 0.85) is positive evidence that nudges a borderline word UP to "good".
+- Engines heard DIFFERENT words at the same position (live "think" / verbatim "sink", or vice versa): real mispronunciation that changed the word. Substitutions (think/sink, live/leave, ship/sheep) are "bad"; use "off" only when the intended word is still obvious despite the distortion. Ignore trivial transcription variants (casing, hyphenation, number formatting, contractions, connected-speech reductions) — those are not disagreements.
 - A word missing from the verbatim transcript entirely or weak on every signal → "bad".
 - Grammar mistakes are NOT pronunciation mistakes. Rate only HOW words were pronounced.
 
 Calibration for turn_score — use the FULL range, do not cluster:
-- Near-native turn (most words "good", acoustic mostly ≥ 85, no disagreement): 90-100. Be generous here — excellent pronunciation should clearly read as excellent.
+- Native / near-native turn (engines agree on nearly every word, content-word confidence mostly ≥ 0.85, fluent connected speech): 90-100. Be generous — excellent pronunciation must clearly read as excellent. Do NOT let dipped acoustic numbers on connected speech pull this down.
 - Clear but accented (mostly "ok"): 68-82.
 - Noticeable non-native accent across the turn (several "off" from low acoustic on agreed words): 50-65. Accent strength alone, with no word-changing errors, can legitimately land here.
 - Word-changing errors cost on top of accent: ONE such error caps the turn at 65; two at 50; three or more at 40; mostly garbled below 30.

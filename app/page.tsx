@@ -663,11 +663,25 @@ export default function Home() {
         }
 
         // The examiner's question this turn answers — captured BEFORE
-        // handleUserTurn appends the avatar's next reply to history.
+        // the avatar's next reply is appended to history.
         const questionContext =
           [...historyRef.current].reverse().find((m) => m.role === "assistant")?.content ?? "";
 
-        await handleUserTurn(text, pronunciation);
+        if (shouldEnd) {
+          // Winding down: record + assess this final answer, but do NOT let the
+          // avatar ask another question right before closing (that made the
+          // ending feel abrupt). Append the user turn to history directly, then
+          // go straight to the closing comment, which Claude phrases naturally
+          // around the answer it can now see in the transcript.
+          const finalHistory: Msg[] = [
+            ...historyRef.current,
+            { role: "user", content: text, pronunciation },
+          ];
+          historyRef.current = finalHistory;
+          setHistory(finalHistory);
+        } else {
+          await handleUserTurn(text, pronunciation);
+        }
 
         // Kick off the assessment. callPronunciationAPI also attaches the
         // conditioned WAV to the transcript player (the raw webm is recorded
