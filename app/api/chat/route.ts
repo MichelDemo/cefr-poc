@@ -40,16 +40,21 @@ const VOICE_PROFILE: Record<ConvLang, { lang: string; voice: string; style: stri
   "nl-BE": { lang: "nl-BE", voice: "nl-BE-DenaNeural", style: "" },
 };
 
+// Speaking-rate presets. The conversation opens slow so low-level listeners
+// can follow; it switches to the natural rate once the avatar judges the
+// speaker is B1+ (signalled per-reply via a leading level tag — see below).
+const SLOW_RATE = "-16%";
+const NORMAL_RATE = "-3%";
+
 /**
  * Build expressive SSML.
  * - mstts:express-as style="chat" + styledegree gives a warm, conversational
  *   register instead of the flat reading voice.
- * - prosody rate is near-natural (-3% vs the old sluggish -10%, which was the
- *   main thing draining expressiveness) with a slight pitch lift; pitch
- *   contour adds gentle intonation movement so sentences don't stay monotone.
+ * - prosody rate is caller-supplied (slow for A1/A2 listeners, natural for B1+)
+ *   with a slight pitch lift for gentle intonation movement.
  */
-function buildSSML(text: string, p: { lang: string; voice: string; style: string }): string {
-  const inner = `<prosody rate="-3%" pitch="+3%">${escapeXml(text)}</prosody>`;
+function buildSSML(text: string, p: { lang: string; voice: string; style: string }, rate: string): string {
+  const inner = `<prosody rate="${rate}" pitch="+3%">${escapeXml(text)}</prosody>`;
   const styled = p.style
     ? `<mstts:express-as style="${p.style}" styledegree="1.3">${inner}</mstts:express-as>`
     : inner;
@@ -67,7 +72,8 @@ function buildSSML(text: string, p: { lang: string; voice: string; style: string
  */
 async function startTTS(
   text: string,
-  language: ConvLang
+  language: ConvLang,
+  rate: string
 ): Promise<ReadableStreamDefaultReader<Uint8Array> | null> {
   const key = process.env.AZURE_SPEECH_KEY;
   if (!key || !text.trim()) return null;
@@ -84,7 +90,7 @@ async function startTTS(
         "Content-Type": "application/ssml+xml",
         "X-Microsoft-OutputFormat": "raw-24khz-16bit-mono-pcm",
       },
-      body: buildSSML(text, profile),
+      body: buildSSML(text, profile, rate),
     }
   );
 
@@ -121,9 +127,32 @@ export async function POST(req: Request) {
       let fullText = "";
       let pending = "";
 
+      // Speaking rate for this reply. The avatar prefixes each reply with a
+      // level tag ⟦A1⟧…⟦C1⟧ (its presumed level for the speaker); we strip it
+      // and pick the rate from it. Default slow until proven B1+.
+      let rate = SLOW_RATE;
+      // Head-buffer: hold the very start of the reply until the leading level
+      // tag is parsed and removed, so it never reaches the caption or TTS.
+      let headResolved = false;
+      let head = "";
+
       // Each entry is a Promise that resolves to a streaming reader (or null).
       // Promises are pushed immediately when a sentence boundary is hit — no await.
       const ttsQueue: Promise<ReadableStreamDefaultReader<Uint8Array> | null>[] = [];
+
+      // Emit cleaned (tag-free) text: forward to the caption, accumulate into
+      // fullText, and fire TTS on each complete sentence.
+      const emit = (chunk: string) => {
+        if (!chunk) return;
+        fullText += chunk;
+        pending += chunk;
+        send("text", JSON.stringify({ delta: chunk }));
+        let m;
+        while ((m = pending.match(/^([\s\S]*?[.!?…])\s/))) {
+          ttsQueue.push(startTTS(m[1], language, rate));
+          pending = pending.slice(m[0].length);
+        }
+      };
 
       try {
         const claudeStream = await anthropic.messages.stream({
@@ -142,21 +171,47 @@ export async function POST(req: Request) {
             event.delta.type === "text_delta"
           ) {
             const piece = event.delta.text;
-            fullText += piece;
-            pending += piece;
-            send("text", JSON.stringify({ delta: piece }));
 
-            const match = pending.match(/^([\s\S]*?[.!?…])\s/);
-            if (match) {
-              // Fire TTS immediately — no await, runs in parallel with Claude
-              ttsQueue.push(startTTS(match[1], language));
-              pending = pending.slice(match[0].length);
+            if (headResolved) {
+              emit(piece);
+              continue;
             }
+
+            // Still resolving the leading level tag. Accept the intended ⟦XX⟧
+            // glyphs and a [XX] fallback in case the model normalises them.
+            head += piece;
+            const trimmed = head.replace(/^\s+/, "");
+            if (trimmed === "") continue; // only whitespace so far
+
+            if (trimmed[0] !== "⟦" && trimmed[0] !== "[") {
+              // No tag present — flush what we have as normal text.
+              headResolved = true;
+              emit(head);
+              head = "";
+              continue;
+            }
+
+            const tag = head.match(/^\s*[⟦[]\s*(A1|A2|B1|B2|C1)\s*[⟧\]]\s*/i);
+            if (tag) {
+              const level = tag[1].toUpperCase();
+              rate = level === "A1" || level === "A2" ? SLOW_RATE : NORMAL_RATE;
+              headResolved = true;
+              emit(head.slice(tag[0].length));
+              head = "";
+            } else if (head.length > 14) {
+              // An opening ⟦ that never closed sensibly — give up, treat as text.
+              headResolved = true;
+              emit(head);
+              head = "";
+            }
+            // else: partial tag, wait for more deltas.
           }
         }
 
+        // Flush any unresolved head (e.g. a lone partial tag at end of stream).
+        if (!headResolved && head) emit(head);
         if (pending.trim()) {
-          ttsQueue.push(startTTS(pending, language));
+          ttsQueue.push(startTTS(pending, language, rate));
         }
       } catch (e) {
         send("error", JSON.stringify({ stage: "llm", message: String(e) }));
